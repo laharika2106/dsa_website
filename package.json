@@ -1,0 +1,14 @@
+{
+  "name": "algorithm-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "test": "node scripts/test-coach.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

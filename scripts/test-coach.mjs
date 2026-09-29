@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const source=await readFile('dist/server/index.js','utf8');
+const {default:worker}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+const env={GEMINI_API_KEY:'test-secret-key',GEMINI_MODEL:'gemini-3.8-flash'};
+const input={mode:'hint',messages:[{role:'user',content:'How do I solve two sum?'}],code:'',context:'Two sum: find two indices.'};
+const request=(data=input,headers={})=>new Request('https://lab.example/api/coach',{method:'POST',headers:{'content-type':'application/json',origin:'https://lab.example','cf-connecting-ip':String(Math.random()),...headers},body:JSON.stringify(data)});
+assert.equal((await worker.fetch(new Request('https://lab.example/'),env)).status,200);
+assert.equal((await worker.fetch(new Request('https://lab.example/coach.js'),env)).status,200);
+assert.equal((await worker.fetch(new Request('https://lab.example/.env'),env)).status,404);
+assert.equal((await worker.fetch(request(),{})).status,503);
+assert.equal((await worker.fetch(request(input,{origin:'https://other.example'}),env)).status,403);
+assert.equal((await worker.fetch(request({...input,mode:'unknown'}),env)).status,400);
+assert.equal((await worker.fetch(request({...input,messages:[{role:'system',content:'bad'}]}),env)).status,400);
+assert.equal((await worker.fetch(request({...input,code:'x'.repeat(12001)}),env)).status,400);
+assert.equal((await worker.fetch(request({...input,context:'x'.repeat(53000)}),env)).status,413);
+const originalFetch=globalThis.fetch;
+let sent;
+globalThis.fetch=async(url,options)=>{sent={url,options};return Response.json({candidates:[{content:{parts:[{text:'Think about storing earlier values in a hash map.'}]},finishReason:'STOP'}]})};
+let response=await worker.fetch(request(),env);let result=await response.json();assert.equal(response.status,200);assert.match(result.text,/hash map/);assert.equal(sent.options.headers['x-goog-api-key'],env.GEMINI_API_KEY);assert.ok(!sent.url.includes(env.GEMINI_API_KEY));assert.equal(JSON.parse(sent.options.body).contents[0].role,'user');assert.match(JSON.parse(sent.options.body).contents[0].parts[0].text,/learning_context/);assert.ok(!JSON.stringify(result).includes(env.GEMINI_API_KEY));
+for(const status of [400,401,403,404,429,500]){globalThis.fetch=async()=>Response.json({error:{message:'test-secret-key do not expose'}},{status});response=await worker.fetch(request(),env);result=await response.json();assert.notEqual(response.status,200);assert.ok(!JSON.stringify(result).includes(env.GEMINI_API_KEY))}
+globalThis.fetch=async()=>Response.json({candidates:[]});assert.equal((await worker.fetch(request(),env)).status,502);
+globalThis.fetch=async()=>{throw new DOMException('timeout','AbortError')};assert.equal((await worker.fetch(request(),env)).status,504);
+globalThis.fetch=originalFetch;
+console.log('Passed static routes, request validation, origin checks, secret isolation, provider response, quota, empty response, and timeout tests.');
